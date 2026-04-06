@@ -31,15 +31,62 @@ graph TD
         
         Redis -.-> Shards
         subgraph Shards [Filter Shards]
-            S0[(bf:{name}:shard:0)]
-            S1[(bf:{name}:shard:1)]
-            Sn[(bf:{name}:shard:...)]
-            S15[(bf:{name}:shard:15)]
+            S0[("bf:name:shard:0")]
+            S1[("bf:name:shard:1")]
+            Sn[("bf:name:shard:...")]
+            S15[("bf:name:shard:15")]
         end
     end
     
     HealthCheck[RedisBloomHealthIndicator] --> LettucePool
     HealthCheck --> ActuatorHealth[/actuator/health/]
+```
+
+### 🔍 Detailed Execution Flow
+
+The sequence diagram below displays how the codebase handles complex batch inputs (like `BF.MADD` and `BF.MEXISTS`), grouping them logically by shard to minimize network overhead and ensure highly concurrent execution:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant Controller as BloomFilterController
+    participant Service as RedisBloomFilterService
+    participant Router as ShardRouter
+    participant Executor as RedisBloomCommandExecutor
+    participant Metrics as BloomFilterMetrics
+    participant Redis as Redis Stack (RedisBloom)
+
+    Client->>Controller: POST /api/v1/bloom/users/add/batch
+    
+    activate Controller
+    Controller->>Service: multiAdd("users", items)
+    activate Service
+    
+    loop For each item
+        Service->>Router: getShardIndex(item, shardCount)
+        Router-->>Service: returned shard index
+    end
+    
+    Note over Service: Group items logically by Shard ID
+    
+    loop For each Shard Grouping
+        Service->>Executor: multiAdd(shardKey, groupedItems)
+        activate Executor
+        Executor->>Redis: <Lettuce Dispatch> BF.MADD shardKey item1 item2...
+        Redis-->>Executor: [1, 0, 1]
+        Executor-->>Service: List<Boolean> results
+        deactivate Executor
+    end
+    
+    Service->>Metrics: record batch size, operation count, latencies
+    
+    Note over Service: Reconstruct original mapped order of results
+    Service-->>Controller: final merged List<Boolean>
+    deactivate Service
+    
+    Controller-->>Client: 200 OK (itemsProcessed, results array)
+    deactivate Controller
 ```
 
 ---
