@@ -114,7 +114,7 @@ public class RedisConfig {
      * Lettuce connection factory with pooling and production client options.
      */
     @Bean
-    public RedisConnectionFactory redisConnectionFactory(
+    public LettuceConnectionFactory redisConnectionFactory(
             ClientResources clientResources,
             GenericObjectPoolConfig<?> redisPoolConfig,
             ClientOptions clientOptions) {

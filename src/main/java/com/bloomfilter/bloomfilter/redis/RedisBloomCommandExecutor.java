@@ -13,6 +13,7 @@ import io.lettuce.core.protocol.CommandArgs;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.data.redis.connection.RedisConnection;
 
 import io.lettuce.core.protocol.ProtocolKeyword;
 
@@ -51,18 +52,9 @@ public class RedisBloomCommandExecutor {
 
     // ─── BF.RESERVE ────────────────────────────────────────────────────
 
-    /**
-     * Creates a new Bloom Filter with specified parameters.
-     *
-     * @param key        Redis key for the bloom filter
-     * @param errorRate  desired false positive rate (e.g., 0.001 for 0.1%)
-     * @param capacity   expected number of items (per shard)
-     * @param expansion  sub-filter expansion factor (typically 2)
-     * @param nonScaling if true, filter will not auto-expand when full
-     * @throws BloomFilterException if the filter already exists or Redis error occurs
-     */
     public void reserve(String key, double errorRate, long capacity, int expansion, boolean nonScaling) {
-        try (var conn = getNativeConnection()) {
+        try (RedisConnection redisConn = connectionFactory.getConnection()) {
+            StatefulRedisConnection<String, String> conn = extractNative(redisConn);
             RedisCommands<String, String> sync = conn.sync();
             CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8)
                     .addKey(key)
@@ -90,13 +82,9 @@ public class RedisBloomCommandExecutor {
 
     // ─── BF.ADD ────────────────────────────────────────────────────────
 
-    /**
-     * Adds a single item to the bloom filter.
-     *
-     * @return true if the item was newly added, false if it may have already existed
-     */
     public boolean add(String key, String item) {
-        try (var conn = getNativeConnection()) {
+        try (RedisConnection redisConn = connectionFactory.getConnection()) {
+            StatefulRedisConnection<String, String> conn = extractNative(redisConn);
             RedisCommands<String, String> sync = conn.sync();
             CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8)
                     .addKey(key)
@@ -109,11 +97,16 @@ public class RedisBloomCommandExecutor {
         }
     }
 
-    /**
-     * Async variant of {@link #add(String, String)}.
-     */
     public CompletableFuture<Boolean> addAsync(String key, String item) {
-        StatefulRedisConnection<String, String> conn = getNativeConnection();
+        RedisConnection redisConn = connectionFactory.getConnection();
+        StatefulRedisConnection<String, String> conn;
+        try {
+            conn = extractNative(redisConn);
+        } catch (Exception e) {
+            redisConn.close();
+            return CompletableFuture.failedFuture(e);
+        }
+
         RedisAsyncCommands<String, String> async = conn.async();
         CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8)
                 .addKey(key)
@@ -124,24 +117,17 @@ public class RedisBloomCommandExecutor {
 
         return future.toCompletableFuture()
                 .thenApply(result -> result != null && result == 1L)
-                .whenComplete((result, ex) -> conn.close());
+                .whenComplete((result, ex) -> redisConn.close());
     }
 
     // ─── BF.MADD ───────────────────────────────────────────────────────
 
-    /**
-     * Adds multiple items to the bloom filter in a single round-trip.
-     * This is the primary method for bulk ingestion at scale.
-     *
-     * @param key   Redis key
-     * @param items items to add
-     * @return list of booleans — true if newly added, false if may have existed
-     */
     public List<Boolean> multiAdd(String key, String... items) {
         if (items == null || items.length == 0) {
             return List.of();
         }
-        try (var conn = getNativeConnection()) {
+        try (RedisConnection redisConn = connectionFactory.getConnection()) {
+            StatefulRedisConnection<String, String> conn = extractNative(redisConn);
             RedisCommands<String, String> sync = conn.sync();
             CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8)
                     .addKey(key);
@@ -159,14 +145,19 @@ public class RedisBloomCommandExecutor {
         }
     }
 
-    /**
-     * Async variant of {@link #multiAdd(String, String...)}.
-     */
     public CompletableFuture<List<Boolean>> multiAddAsync(String key, String... items) {
         if (items == null || items.length == 0) {
             return CompletableFuture.completedFuture(List.of());
         }
-        StatefulRedisConnection<String, String> conn = getNativeConnection();
+        RedisConnection redisConn = connectionFactory.getConnection();
+        StatefulRedisConnection<String, String> conn;
+        try {
+            conn = extractNative(redisConn);
+        } catch (Exception e) {
+            redisConn.close();
+            return CompletableFuture.failedFuture(e);
+        }
+        
         RedisAsyncCommands<String, String> async = conn.async();
         CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8)
                 .addKey(key);
@@ -180,19 +171,14 @@ public class RedisBloomCommandExecutor {
 
         return future.toCompletableFuture()
                 .thenApply(this::toLongBooleanList)
-                .whenComplete((result, ex) -> conn.close());
+                .whenComplete((result, ex) -> redisConn.close());
     }
 
     // ─── BF.EXISTS ─────────────────────────────────────────────────────
 
-    /**
-     * Checks if an item may exist in the bloom filter.
-     *
-     * @return true if the item MIGHT exist (possible false positive),
-     *         false if the item DEFINITELY does not exist (zero false negatives)
-     */
     public boolean exists(String key, String item) {
-        try (var conn = getNativeConnection()) {
+        try (RedisConnection redisConn = connectionFactory.getConnection()) {
+            StatefulRedisConnection<String, String> conn = extractNative(redisConn);
             RedisCommands<String, String> sync = conn.sync();
             CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8)
                     .addKey(key)
@@ -206,11 +192,16 @@ public class RedisBloomCommandExecutor {
         }
     }
 
-    /**
-     * Async variant of {@link #exists(String, String)}.
-     */
     public CompletableFuture<Boolean> existsAsync(String key, String item) {
-        StatefulRedisConnection<String, String> conn = getNativeConnection();
+        RedisConnection redisConn = connectionFactory.getConnection();
+        StatefulRedisConnection<String, String> conn;
+        try {
+            conn = extractNative(redisConn);
+        } catch (Exception e) {
+            redisConn.close();
+            return CompletableFuture.failedFuture(e);
+        }
+
         RedisAsyncCommands<String, String> async = conn.async();
         CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8)
                 .addKey(key)
@@ -221,21 +212,17 @@ public class RedisBloomCommandExecutor {
 
         return future.toCompletableFuture()
                 .thenApply(result -> result != null && result == 1L)
-                .whenComplete((result, ex) -> conn.close());
+                .whenComplete((result, ex) -> redisConn.close());
     }
 
     // ─── BF.MEXISTS ────────────────────────────────────────────────────
 
-    /**
-     * Checks if multiple items may exist in the bloom filter in a single round-trip.
-     *
-     * @return list of booleans — true if might exist, false if definitely absent
-     */
     public List<Boolean> multiExists(String key, String... items) {
         if (items == null || items.length == 0) {
             return List.of();
         }
-        try (var conn = getNativeConnection()) {
+        try (RedisConnection redisConn = connectionFactory.getConnection()) {
+            StatefulRedisConnection<String, String> conn = extractNative(redisConn);
             RedisCommands<String, String> sync = conn.sync();
             CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8)
                     .addKey(key);
@@ -253,14 +240,19 @@ public class RedisBloomCommandExecutor {
         }
     }
 
-    /**
-     * Async variant of {@link #multiExists(String, String...)}.
-     */
     public CompletableFuture<List<Boolean>> multiExistsAsync(String key, String... items) {
         if (items == null || items.length == 0) {
             return CompletableFuture.completedFuture(List.of());
         }
-        StatefulRedisConnection<String, String> conn = getNativeConnection();
+        RedisConnection redisConn = connectionFactory.getConnection();
+        StatefulRedisConnection<String, String> conn;
+        try {
+            conn = extractNative(redisConn);
+        } catch (Exception e) {
+            redisConn.close();
+            return CompletableFuture.failedFuture(e);
+        }
+
         RedisAsyncCommands<String, String> async = conn.async();
         CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8)
                 .addKey(key);
@@ -274,18 +266,14 @@ public class RedisBloomCommandExecutor {
 
         return future.toCompletableFuture()
                 .thenApply(this::toLongBooleanList)
-                .whenComplete((result, ex) -> conn.close());
+                .whenComplete((result, ex) -> redisConn.close());
     }
 
     // ─── BF.INFO ───────────────────────────────────────────────────────
 
-    /**
-     * Retrieves information about a bloom filter.
-     *
-     * @return {@link BloomFilterInfo} with capacity, size, number of filters, etc.
-     */
     public BloomFilterInfo info(String key) {
-        try (var conn = getNativeConnection()) {
+        try (RedisConnection redisConn = connectionFactory.getConnection()) {
+            StatefulRedisConnection<String, String> conn = extractNative(redisConn);
             RedisCommands<String, String> sync = conn.sync();
             CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8)
                     .addKey(key);
@@ -302,11 +290,9 @@ public class RedisBloomCommandExecutor {
 
     // ─── BF.CARD ───────────────────────────────────────────────────────
 
-    /**
-     * Returns the number of items added to the bloom filter.
-     */
     public long cardinality(String key) {
-        try (var conn = getNativeConnection()) {
+        try (RedisConnection redisConn = connectionFactory.getConnection()) {
+            StatefulRedisConnection<String, String> conn = extractNative(redisConn);
             RedisCommands<String, String> sync = conn.sync();
             CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8)
                     .addKey(key);
@@ -321,26 +307,20 @@ public class RedisBloomCommandExecutor {
 
     // ─── DELETE (standard Redis DEL) ───────────────────────────────────
 
-    /**
-     * Deletes a bloom filter key from Redis.
-     */
     public boolean delete(String key) {
-        try (var conn = getNativeConnection()) {
+        try (RedisConnection redisConn = connectionFactory.getConnection()) {
+            StatefulRedisConnection<String, String> conn = extractNative(redisConn);
             RedisCommands<String, String> sync = conn.sync();
-            Long deleted = sync.del(key);
+            CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8).addKey(key);
+            Long deleted = sync.dispatch(io.lettuce.core.protocol.CommandType.DEL, 
+                    new IntegerOutput<>(StringCodec.UTF8), args);
             return deleted != null && deleted > 0;
         } catch (Exception e) {
             throw wrapException("DEL", key, e);
         }
     }
 
-    /**
-     * Checks if the RedisBloom module is loaded on the server.
-     *
-     * @return true if RedisBloom is available
-     */
     public boolean isRedisBloomAvailable() {
-        // Custom ProtocolKeyword for MODULE command (not in Lettuce's CommandType enum)
         ProtocolKeyword moduleCmd = new ProtocolKeyword() {
             @Override
             public byte[] getBytes() {
@@ -348,7 +328,8 @@ public class RedisBloomCommandExecutor {
             }
         };
 
-        try (var conn = getNativeConnection()) {
+        try (RedisConnection redisConn = connectionFactory.getConnection()) {
+            StatefulRedisConnection<String, String> conn = extractNative(redisConn);
             RedisCommands<String, String> sync = conn.sync();
             @SuppressWarnings("unchecked")
             List<Object> modules = (List<Object>) sync.dispatch(
@@ -358,7 +339,6 @@ public class RedisBloomCommandExecutor {
 
             if (modules == null) return false;
 
-            // MODULE LIST returns nested arrays; look for "bf" in the response
             return modules.toString().toLowerCase().contains("bf");
         } catch (Exception e) {
             log.warn("Could not check RedisBloom module availability", e);
@@ -366,13 +346,13 @@ public class RedisBloomCommandExecutor {
         }
     }
 
-    /**
-     * Checks if a bloom filter key exists in Redis.
-     */
     public boolean keyExists(String key) {
-        try (var conn = getNativeConnection()) {
+        try (RedisConnection redisConn = connectionFactory.getConnection()) {
+            StatefulRedisConnection<String, String> conn = extractNative(redisConn);
             RedisCommands<String, String> sync = conn.sync();
-            Long exists = sync.exists(key);
+            CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8).addKey(key);
+            Long exists = sync.dispatch(io.lettuce.core.protocol.CommandType.EXISTS, 
+                    new IntegerOutput<>(StringCodec.UTF8), args);
             return exists != null && exists > 0;
         } catch (Exception e) {
             throw wrapException("EXISTS", key, e);
@@ -382,13 +362,16 @@ public class RedisBloomCommandExecutor {
     // ─── Internal Helpers ──────────────────────────────────────────────
 
     @SuppressWarnings("unchecked")
-    private StatefulRedisConnection<String, String> getNativeConnection() {
-        try {
-            return (StatefulRedisConnection<String, String>)
-                    connectionFactory.getConnection().getNativeConnection();
-        } catch (Exception e) {
-            throw new BloomFilterException("Failed to obtain Redis connection", e);
+    private StatefulRedisConnection<String, String> extractNative(RedisConnection redisConn) {
+        Object nativeConnection = redisConn.getNativeConnection();
+        
+        if (nativeConnection instanceof StatefulRedisConnection) {
+            return (StatefulRedisConnection<String, String>) nativeConnection;
+        } else if (nativeConnection instanceof RedisAsyncCommands) {
+            return ((RedisAsyncCommands<String, String>) nativeConnection).getStatefulConnection();
         }
+        
+        throw new IllegalStateException("Unknown native connection type: " + nativeConnection.getClass());
     }
 
     private List<Boolean> toLongBooleanList(List<Long> results) {

@@ -205,6 +205,45 @@ bloom-filter:
 
 ---
 
+## 📈 Scaling for Billions of Users
+
+When your application user base natively scales into the billions (e.g., verifying unique usernames, deduplicating high-frequency event streams, feed generation), you need to carefully configure `application.yml` and provision your production Redis cluster to avoid Out Of Memory (OOM) errors.
+
+### 1. Capacity & Ram Calculation
+A Bloom filter's memory footprint is heavily dependent on two variables: **Capacity** and **Error Rate**. 
+
+* **To store 1 Billion items at `0.001` (0.1%) error rate**: ~1.7 GB of total RAM.
+* **To store 5 Billion items at `0.0001` (0.01%) error rate**: ~11.9 GB of total RAM.
+
+**Important Rule:** The lower your error rate, the significantly more memory the filter maps into Redis. When scaling:
+1. Estimate your upper bound of elements over the next year (e.g., `5000000000`).
+2. Tweak the error rate: if a 0.1% false positive is acceptable for your app logic (e.g. standard cache avoidance), stick to `0.001`. Do not drop the error to `0.0001` unless your business case strictly requires it.
+
+### 2. Shard Count Configuration (`shard-count`)
+Redis has a hard physical limit: **a single string value cannot exceed 512MB**. Beyond physical limits, massive single keys can drastically impact Redis performance, block the single-threaded event loop during loads, and cause uneven data propagation across a distributed Redis Cluster.
+
+* **For 1 Billion items**: Use at least `shard-count: 16`. This yields ~106MB chunks.
+* **For 5 Billion items**: Use at least `shard-count: 32` or `64`. This keeps shards tiny and drastically improves chunk distribution over your Redis Cluster instances.
+
+### 3. Modifying Production Configurations
+In your production `application.yml` deployed over Kubernetes/AWS:
+
+```yaml
+bloom-filter:
+  filters:
+    posts:
+      capacity: 5000000000      # Target 5 Billion
+      error-rate: 0.001         # Accept 0.1% collisions to save ~40% RAM compared to 0.01%
+      shard-count: 64           # Split over 64 Redis Keys 
+```
+*Note that during Local Development, Docker Desktop defaults to a 2GB / 4GB Memory limit. Attempting to allocate capacities yielding 10GB+ in your local config will cause immediate OOM initialization failures. Scale the configurations down (e.g., `500000000`) for your local profiles.*
+
+### 4. Cluster Architecture
+For multi-billion user scales, deploy an official **Redis Cluster** rather than a single Redis instance.
+Because the keys are suffixed as `bf:posts:shard:0` to `bf:posts:shard:63`, Redis Cluster will independently hash each shard name to a different hash slot. Your 64 shards will be evenly distributed parallel across all your physical Redis node shards — providing incredibly high concurrent throughput without hot-key bottlenecks.
+
+---
+
 ## 🔌 API Reference
 
 Base path: `/api/v1/bloom/{filterName}`

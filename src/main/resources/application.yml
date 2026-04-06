@@ -33,15 +33,15 @@ bloom-filter:
   # Named filter presets (auto-created on startup if auto-reserve=true)
   filters:
     users:
-      capacity: 1000000000
+      capacity: 100000000
       error-rate: 0.001
       shard-count: 16
     posts:
-      capacity: 5000000000
-      error-rate: 0.0001
+      capacity: 500000000
+      error-rate: 0.001
       shard-count: 32
     notifications:
-      capacity: 2000000000
+      capacity: 200000000
       error-rate: 0.001
       shard-count: 16
 
