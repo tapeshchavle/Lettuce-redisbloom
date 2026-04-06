@@ -1,0 +1,28 @@
+version: '3.9'
+
+services:
+  redis-stack:
+    image: redis/redis-stack-server:latest
+    container_name: bloomfilter-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    environment:
+      - REDIS_ARGS=--maxmemory 4gb --maxmemory-policy noeviction --save 60 1000
+    deploy:
+      resources:
+        limits:
+          memory: 6g
+        reservations:
+          memory: 4g
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+    driver: local

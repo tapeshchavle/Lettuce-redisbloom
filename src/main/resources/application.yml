@@ -1,0 +1,74 @@
+spring:
+  application:
+    name: bloomfilter
+
+  # ─── Redis Configuration ───────────────────────────────────────────
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+      connect-timeout: 3s
+      lettuce:
+        pool:
+          enabled: true
+          max-active: 16
+          max-idle: 8
+          min-idle: 4
+          max-wait: 2s
+        shutdown-timeout: 200ms
+
+# ─── Bloom Filter Configuration ─────────────────────────────────────
+bloom-filter:
+  key-prefix: "bf"
+  auto-reserve: true
+  default-capacity: 1000000000    # 1 billion items
+  default-error-rate: 0.001       # 0.1% false positive rate
+  default-shard-count: 16
+  expansion: 2
+  non-scaling: false
+  batch-size: 10000               # Items per BF.MADD batch
+
+  # Named filter presets (auto-created on startup if auto-reserve=true)
+  filters:
+    users:
+      capacity: 1000000000
+      error-rate: 0.001
+      shard-count: 16
+    posts:
+      capacity: 5000000000
+      error-rate: 0.0001
+      shard-count: 32
+    notifications:
+      capacity: 2000000000
+      error-rate: 0.001
+      shard-count: 16
+
+# ─── Actuator & Metrics ─────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: bloomfilter
+    distribution:
+      percentiles-histogram:
+        bloom.filter.operation.duration: true
+
+# ─── Server Configuration ───────────────────────────────────────────
+server:
+  port: ${SERVER_PORT:8080}
+
+# ─── Logging ─────────────────────────────────────────────────────────
+logging:
+  level:
+    com.bloomfilter: DEBUG
+    io.lettuce.core: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
