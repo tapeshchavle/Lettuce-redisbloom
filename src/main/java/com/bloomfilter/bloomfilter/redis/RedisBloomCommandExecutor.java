@@ -32,13 +32,6 @@ import java.util.concurrent.CompletableFuture;
  * <h3>Thread Safety</h3>
  * <p>This class is thread-safe. Lettuce connections are multiplexed — a single connection
  * handles multiple concurrent commands. The connection factory manages pooling.</p>
- *
- * <h3>Performance Characteristics</h3>
- * <ul>
- *   <li>Single operations: O(k) where k = number of hash functions</li>
- *   <li>Batch operations (MADD/MEXISTS): O(n*k) but single round-trip</li>
- *   <li>Network: 1 RTT per call (use batch methods to amortize)</li>
- * </ul>
  */
 @Slf4j
 @Component
@@ -90,8 +83,8 @@ public class RedisBloomCommandExecutor {
                     .addKey(key)
                     .addValue(item);
 
-            Long result = sync.dispatch(BloomFilterCommand.BF_ADD, new IntegerOutput<>(StringCodec.UTF8), args);
-            return result != null && result == 1L;
+            Boolean result = sync.dispatch(BloomFilterCommand.BF_ADD, new BooleanOutput<>(StringCodec.UTF8), args);
+            return Boolean.TRUE.equals(result);
         } catch (Exception e) {
             throw wrapException("BF.ADD", key, e);
         }
@@ -112,11 +105,11 @@ public class RedisBloomCommandExecutor {
                 .addKey(key)
                 .addValue(item);
 
-        RedisFuture<Long> future = async.dispatch(BloomFilterCommand.BF_ADD,
-                new IntegerOutput<>(StringCodec.UTF8), args);
+        RedisFuture<Boolean> future = async.dispatch(BloomFilterCommand.BF_ADD,
+                new BooleanOutput<>(StringCodec.UTF8), args);
 
         return future.toCompletableFuture()
-                .thenApply(result -> result != null && result == 1L)
+                .thenApply(Boolean.TRUE::equals)
                 .whenComplete((result, ex) -> redisConn.close());
     }
 
@@ -135,11 +128,10 @@ public class RedisBloomCommandExecutor {
                 args.addValue(item);
             }
 
-            @SuppressWarnings("unchecked")
-            List<Long> results = (List<Long>) sync.dispatch(BloomFilterCommand.BF_MADD,
-                    (CommandOutput) new ArrayOutput<>(StringCodec.UTF8), args);
+            List<Boolean> results = sync.dispatch(BloomFilterCommand.BF_MADD,
+                    new BooleanListOutput<>(StringCodec.UTF8), args);
 
-            return toLongBooleanList(results);
+            return results != null ? results : List.of();
         } catch (Exception e) {
             throw wrapException("BF.MADD", key, e);
         }
@@ -157,7 +149,7 @@ public class RedisBloomCommandExecutor {
             redisConn.close();
             return CompletableFuture.failedFuture(e);
         }
-        
+
         RedisAsyncCommands<String, String> async = conn.async();
         CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8)
                 .addKey(key);
@@ -165,12 +157,11 @@ public class RedisBloomCommandExecutor {
             args.addValue(item);
         }
 
-        @SuppressWarnings("unchecked")
-        RedisFuture<List<Long>> future = (RedisFuture<List<Long>>) (RedisFuture<?>) async.dispatch(BloomFilterCommand.BF_MADD,
-                (CommandOutput) new ArrayOutput<>(StringCodec.UTF8), args);
+        RedisFuture<List<Boolean>> future = async.dispatch(BloomFilterCommand.BF_MADD,
+                new BooleanListOutput<>(StringCodec.UTF8), args);
 
         return future.toCompletableFuture()
-                .thenApply(this::toLongBooleanList)
+                .thenApply(res -> res != null ? res : List.<Boolean>of())
                 .whenComplete((result, ex) -> redisConn.close());
     }
 
@@ -184,9 +175,9 @@ public class RedisBloomCommandExecutor {
                     .addKey(key)
                     .addValue(item);
 
-            Long result = sync.dispatch(BloomFilterCommand.BF_EXISTS,
-                    new IntegerOutput<>(StringCodec.UTF8), args);
-            return result != null && result == 1L;
+            Boolean result = sync.dispatch(BloomFilterCommand.BF_EXISTS,
+                    new BooleanOutput<>(StringCodec.UTF8), args);
+            return Boolean.TRUE.equals(result);
         } catch (Exception e) {
             throw wrapException("BF.EXISTS", key, e);
         }
@@ -207,11 +198,11 @@ public class RedisBloomCommandExecutor {
                 .addKey(key)
                 .addValue(item);
 
-        RedisFuture<Long> future = async.dispatch(BloomFilterCommand.BF_EXISTS,
-                new IntegerOutput<>(StringCodec.UTF8), args);
+        RedisFuture<Boolean> future = async.dispatch(BloomFilterCommand.BF_EXISTS,
+                new BooleanOutput<>(StringCodec.UTF8), args);
 
         return future.toCompletableFuture()
-                .thenApply(result -> result != null && result == 1L)
+                .thenApply(Boolean.TRUE::equals)
                 .whenComplete((result, ex) -> redisConn.close());
     }
 
@@ -230,11 +221,10 @@ public class RedisBloomCommandExecutor {
                 args.addValue(item);
             }
 
-            @SuppressWarnings("unchecked")
-            List<Long> results = (List<Long>) sync.dispatch(BloomFilterCommand.BF_MEXISTS,
-                    (CommandOutput) new ArrayOutput<>(StringCodec.UTF8), args);
+            List<Boolean> results = sync.dispatch(BloomFilterCommand.BF_MEXISTS,
+                    new BooleanListOutput<>(StringCodec.UTF8), args);
 
-            return toLongBooleanList(results);
+            return results != null ? results : List.of();
         } catch (Exception e) {
             throw wrapException("BF.MEXISTS", key, e);
         }
@@ -260,12 +250,11 @@ public class RedisBloomCommandExecutor {
             args.addValue(item);
         }
 
-        @SuppressWarnings("unchecked")
-        RedisFuture<List<Long>> future = (RedisFuture<List<Long>>) (RedisFuture<?>) async.dispatch(BloomFilterCommand.BF_MEXISTS,
-                (CommandOutput) new ArrayOutput<>(StringCodec.UTF8), args);
+        RedisFuture<List<Boolean>> future = async.dispatch(BloomFilterCommand.BF_MEXISTS,
+                new BooleanListOutput<>(StringCodec.UTF8), args);
 
         return future.toCompletableFuture()
-                .thenApply(this::toLongBooleanList)
+                .thenApply(res -> res != null ? res : List.<Boolean>of())
                 .whenComplete((result, ex) -> redisConn.close());
     }
 
@@ -351,9 +340,12 @@ public class RedisBloomCommandExecutor {
             StatefulRedisConnection<String, String> conn = extractNative(redisConn);
             RedisCommands<String, String> sync = conn.sync();
             CommandArgs<String, String> args = new CommandArgs<>(StringCodec.UTF8).addKey(key);
-            Long exists = sync.dispatch(io.lettuce.core.protocol.CommandType.EXISTS, 
-                    new IntegerOutput<>(StringCodec.UTF8), args);
-            return exists != null && exists > 0;
+            
+            // Standard Redis command usually returns integer for counts,
+            // but just in case RESP3 translates it to boolean, we handle both using BooleanOutput.
+            Boolean exists = sync.dispatch(io.lettuce.core.protocol.CommandType.EXISTS, 
+                    new BooleanOutput<>(StringCodec.UTF8), args);
+            return Boolean.TRUE.equals(exists);
         } catch (Exception e) {
             throw wrapException("EXISTS", key, e);
         }
@@ -374,22 +366,11 @@ public class RedisBloomCommandExecutor {
         throw new IllegalStateException("Unknown native connection type: " + nativeConnection.getClass());
     }
 
-    private List<Boolean> toLongBooleanList(List<Long> results) {
-        if (results == null) return List.of();
-        List<Boolean> booleans = new ArrayList<>(results.size());
-        for (Long val : results) {
-            booleans.add(val != null && val == 1L);
-        }
-        return booleans;
-    }
-
     private BloomFilterInfo parseInfoResponse(String key, List<Object> results) {
         if (results == null || results.isEmpty()) {
             return BloomFilterInfo.empty(key);
         }
 
-        // BF.INFO returns alternating key-value pairs:
-        // [Capacity, 1000000, Size, 7794184, Number of filters, 1, Number of items inserted, 0, Expansion rate, 2]
         long capacity = 0;
         long size = 0;
         int numberOfFilters = 0;
